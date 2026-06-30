@@ -43,7 +43,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: cargo-${{ hashFiles('**/Cargo.lock') }
           restore-keys: cargo-
 
       - name: Install cargo-ndk and wasm-bindgen-cli
@@ -56,49 +56,53 @@ jobs:
           NDK_VERSION=27.0.12077973
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;${NDK_VERSION}"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> $GITHUB_ENV
-          echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> $GITHUB_ENV
-          echo "$ANDROID_HOME/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+          echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" > $GITHUB_ENV
+          echo "$ANDROID_HOME/ndk/${NDK_VERSION}/tolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+
+      - name: Install libclang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev clang
+          LIBCLANG=$(dirname $(find /usr/lib /usr/lib64 -name 'libclang.so*' 2>/dev/null | head -1))
+          echo "LIBCLANG_PATH=$LIBCLANG" >> $GITHUB_ENV
 
       - name: Patch build.gradle.kts for Linux
-        working-directory: apps/flutter/app/android/app
+        working-directory: aps/flutter/app/android/app
         run: |
           python3 - <<'PY'
           import re
           p = "build.gradle.kts"
           s = open(p, encoding="utf-8").read()
 
-          # 1) 让 release 签名属性变成可选，缺失时回退到 debug 签名，避免配置阶段报错
-          s = s.replace(
-              'localProperties.getProperty(name)\n        ?: throw GradleException("Missing Android release signing property: $name")',
-              'localProperties.getProperty(name) ?: ""'
-          )
+          # 1) 删除整个 release 签名配置块（编译 debug 不需要 keystore）
+          s = re.sub(r'\n[ \t]*signingConfigs\s*\{.*?\n    \}', '', s, flags=re.DOTALL)
 
-          # 2) Windows NDK 工具链路径 -> Linux
+          # 2) release 构建改用 debug 签名
+          s = s.replace('signingConfigs.getByName("release")', 'signingConfigs.getByName("debug")')
+
+          # 3) Windows NDK 工具链路径 -> Linux
           s = s.replace('.resolve("windows-x86_64")', '.resolve("linux-x86_64")')
 
-          # 3) 链接器 .cmd 后缀 -> 无后缀
+          # 4) 链接器 .cmd 后缀 -> 无后缀
           s = s.replace('${linkerPrefix}${apiLevel}-clang.cmd', '${linkerPrefix}${apiLevel}-clang')
 
-          # 4) llvm-ar.exe -> llvm-ar
+          # 5) llvm-ar.exe -> llvm-ar
           s = s.replace('resolve("llvm-ar.exe")', 'resolve("llvm-ar")')
 
-          # 5) Windows libclang 路径 -> 用系统 libclang（apt 安装）
+          # 6) Windows libclang 路径 -> 继承系统环境变量
           s = s.replace(
               'environment("LIBCLANG_PATH", operitLibclangDir.absolutePath)',
-              'environment("LIBCLANG_PATH", "/usr/lib/llvm-14/lib")'
+              'environment("LIBCLANG_PATH", System.getenv("LIBCLANG_PATH") ?: "")'
           )
 
           open(p, "w", encoding="utf-8").write(s)
           print("patched build.gradle.kts")
           PY
 
-      - name: Install libclang
-        run: sudo apt-get update && sudo apt-get install -y libclang-dev clang
-
       - name: Create local.properties
         run: |
           echo "flutter.sdk=${FLUTTER_ROOT}" > apps/flutter/app/android/local.properties
-          echo "sdk.dir=${ANDROID_HOME}" >> apps/flutter/app/android/local.properties
+          echo "sdk.dir=${ANDROID_HOME}" >> aps/flutter/app/android/local.properties
 
       - name: Flutter pub get
         working-directory: apps/flutter/app
@@ -108,7 +112,7 @@ jobs:
         working-directory: apps/flutter/app
         run: |
           mkdir -p build/web
-          echo '<!DOCTYPE html><html><body></body></html>' > build/web/index.html
+          echo '<!DOCTYPE html><html><body></html>' > build/web/index.html
           mkdir -p assets/web_access
 
       - name: Build debug APK
@@ -119,5 +123,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: operit2-debug
-          path: apps/flutter/app/build/app/outputs/flutter-apk/app-debug.apk
+          path: apps/flutter/app/build/app/outputs/flutter-apk/appdebug.apk
           retention-days: 7
