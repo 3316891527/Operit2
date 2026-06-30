@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -31,6 +31,14 @@ jobs:
         run: |
           python3 -m venv .venv
           .venv/bin/pip install --upgrade pip --quiet
+
+      - name: Set up pinned TypeScript
+        run: |
+          node --version
+          npm --version
+          npm install --no-save typescript@5.4.5
+          echo "$PWD/node_modules/.bin" >> $GITHUB_PATH
+          ./node_modules/.bin/tsc --version
 
       - name: Install Rust targets
         run: |
@@ -134,7 +142,9 @@ jobs:
               try:
                   data = json.loads(raw)
                   data.setdefault("compilerOptions", {})
-                  data["compilerOptions"]["ignoreDeprecations"] = "6.0"
+
+                  # TypeScript 5.x 对老 moduleResolution=node 会提示弃用，用 5.0 静默
+                  data["compilerOptions"]["ignoreDeprecations"] = "5.0"
 
                   p.write_text(
                       json.dumps(data, indent=2, ensure_ascii=False) + "\n",
@@ -147,7 +157,7 @@ jobs:
                   if '"ignoreDeprecations"' not in text:
                       text = re.sub(
                           r'("compilerOptions"\s*:\s*\{)',
-                          r'\1\n    "ignoreDeprecations": "6.0",',
+                          r'\1\n    "ignoreDeprecations": "5.0",',
                           text,
                           count=1
                       )
@@ -159,14 +169,27 @@ jobs:
           print("patched tsconfig count:", count)
           PY
 
-      - name: Verify TypeScript config patch
+      - name: Verify TypeScript environment and configs
         run: |
+          echo "which tsc:"
+          which tsc
+          echo "tsc version:"
+          tsc --version
+
           echo "All tsconfig files:"
           find plugins -name tsconfig.json -print
+
           echo "ignoreDeprecations check:"
           grep -R "ignoreDeprecations" plugins --include="tsconfig.json" || true
+
           echo "thinking_guidance tsconfig:"
           cat plugins/packages/buildin/thinking_guidance/tsconfig.json
+
+          echo "Dry run tsc buildin:"
+          tsc -p plugins/packages/buildin/tsconfig.json --pretty false
+
+          echo "Dry run tsc thinking_guidance:"
+          tsc -p plugins/packages/buildin/thinking_guidance/tsconfig.json --pretty false
 
       - name: Create stub web build directory
         working-directory: apps/flutter/app
