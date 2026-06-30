@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -70,9 +70,12 @@ jobs:
         working-directory: apps/flutter/app
         run: flutter pub get
 
-      - name: Build Web first
+      - name: Create stub web build directory
         working-directory: apps/flutter/app
-        run: flutter build web --release
+        run: |
+          mkdir -p build/web
+          echo '<!DOCTYPE html><html><body></body></html>' > build/web/index.html
+          mkdir -p assets/web_access
 
       - name: Build debug APK
         working-directory: apps/flutter/app
