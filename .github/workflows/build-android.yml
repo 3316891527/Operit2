@@ -119,18 +119,31 @@ jobs:
         working-directory: apps/flutter/app
         run: flutter pub get
 
-      - name: Patch TypeScript config
+      - name: Patch all TypeScript configs
         run: |
           python3 - <<'PY'
           import json
           from pathlib import Path
 
-          for p in Path("plugins/packages").glob("*/tsconfig.json"):
-              data = json.loads(p.read_text(encoding="utf-8"))
+          count = 0
+          for p in Path("plugins").rglob("tsconfig.json"):
+              try:
+                  data = json.loads(p.read_text(encoding="utf-8"))
+              except Exception as e:
+                  print("skip", p, e)
+                  continue
+
               data.setdefault("compilerOptions", {})
               data["compilerOptions"]["ignoreDeprecations"] = "6.0"
-              p.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+              p.write_text(
+                  json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+                  encoding="utf-8"
+              )
+              count += 1
               print("patched", p)
+
+          print("patched tsconfig count:", count)
           PY
 
       - name: Create stub web build directory
