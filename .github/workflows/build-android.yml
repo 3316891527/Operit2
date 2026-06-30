@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -27,11 +27,17 @@ jobs:
       - name: Enable Flutter native-assets experiment
         run: flutter config --enable-native-assets
 
-      - name: Install Rust Android targets
+      - name: Set up Python venv (required by build hook)
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --upgrade pip --quiet
+
+      - name: Install Rust targets (Android + wasm)
         run: |
           rustup target add aarch64-linux-android
           rustup target add armv7-linux-androideabi
           rustup target add x86_64-linux-android
+          rustup target add wasm32-unknown-unknown
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -42,8 +48,10 @@ jobs:
           key: cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: cargo-
 
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked --version 3.5.4
+      - name: Install cargo-ndk and wasm-bindgen-cli
+        run: |
+          cargo install cargo-ndk --locked --version 3.5.4
+          cargo install wasm-bindgen-cli --locked
 
       - name: Set up Android NDK
         run: |
@@ -62,13 +70,19 @@ jobs:
         working-directory: apps/flutter/app
         run: flutter pub get
 
+      - name: Build Web first (generates wasm + web assets for APK bundling)
+        working-directory: apps/flutter/app
+        run: flutter build web --release
+
       - name: Build debug APK
         working-directory: apps/flutter/app
-        run: flutter build apk --debug --verbose
+        run: flutter build apk --debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: operit2-debug
+          path: apps/flutter/app/build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 7          name: operit2-debug
           path: apps/flutter/app/build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 7
