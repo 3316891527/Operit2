@@ -1,6 +1,8 @@
 name: Build Android APK
+
 on:
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,7 +18,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Flutter (stable)
+      - name: Set up Flutter stable
         uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -43,10 +45,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: cargo-${{ hashFiles('**/Cargo.lock') }
+          key: cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: cargo-
 
-      - name: Install cargo-ndk and wasm-bindgen-cli
+      - name: Install cargo tools
         run: |
           cargo install cargo-ndk --locked --version 3.5.4
           cargo install wasm-bindgen-cli --locked
@@ -56,53 +58,62 @@ jobs:
           NDK_VERSION=27.0.12077973
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;${NDK_VERSION}"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> $GITHUB_ENV
-          echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" > $GITHUB_ENV
-          echo "$ANDROID_HOME/ndk/${NDK_VERSION}/tolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+          echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> $GITHUB_ENV
+          echo "$ANDROID_HOME/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
       - name: Install libclang
         run: |
           sudo apt-get update
           sudo apt-get install -y libclang-dev clang
-          LIBCLANG=$(dirname $(find /usr/lib /usr/lib64 -name 'libclang.so*' 2>/dev/null | head -1))
-          echo "LIBCLANG_PATH=$LIBCLANG" >> $GITHUB_ENV
+          LIBCLANG_DIR=$(dirname $(find /usr/lib /usr/lib64 -name 'libclang.so*' 2>/dev/null | head -1))
+          echo "LIBCLANG_PATH=$LIBCLANG_DIR" >> $GITHUB_ENV
+          echo "Found LIBCLANG_PATH=$LIBCLANG_DIR"
 
       - name: Patch build.gradle.kts for Linux
-        working-directory: aps/flutter/app/android/app
+        working-directory: apps/flutter/app/android/app
         run: |
           python3 - <<'PY'
-          import re
           p = "build.gradle.kts"
           s = open(p, encoding="utf-8").read()
 
-          # 1) 删除整个 release 签名配置块（编译 debug 不需要 keystore）
-          s = re.sub(r'\n[ \t]*signingConfigs\s*\{.*?\n    \}', '', s, flags=re.DOTALL)
-
-          # 2) release 构建改用 debug 签名
-          s = s.replace('signingConfigs.getByName("release")', 'signingConfigs.getByName("debug")')
-
-          # 3) Windows NDK 工具链路径 -> Linux
+          # Windows NDK toolchain path -> Linux
           s = s.replace('.resolve("windows-x86_64")', '.resolve("linux-x86_64")')
 
-          # 4) 链接器 .cmd 后缀 -> 无后缀
+          # Windows linker suffix -> Linux linker
           s = s.replace('${linkerPrefix}${apiLevel}-clang.cmd', '${linkerPrefix}${apiLevel}-clang')
 
-          # 5) llvm-ar.exe -> llvm-ar
+          # Windows llvm-ar.exe -> Linux llvm-ar
           s = s.replace('resolve("llvm-ar.exe")', 'resolve("llvm-ar")')
 
-          # 6) Windows libclang 路径 -> 继承系统环境变量
+          # Windows libclang path -> system LIBCLANG_PATH
           s = s.replace(
               'environment("LIBCLANG_PATH", operitLibclangDir.absolutePath)',
               'environment("LIBCLANG_PATH", System.getenv("LIBCLANG_PATH") ?: "")'
           )
 
           open(p, "w", encoding="utf-8").write(s)
-          print("patched build.gradle.kts")
+          print("patched build.gradle.kts for Linux")
           PY
 
-      - name: Create local.properties
+      - name: Create local.properties and temporary keystore
         run: |
+          keytool -genkeypair \
+            -v \
+            -keystore apps/flutter/app/android/app/debug-release.jks \
+            -storepass android \
+            -keypass android \
+            -alias androiddebugkey \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
           echo "flutter.sdk=${FLUTTER_ROOT}" > apps/flutter/app/android/local.properties
-          echo "sdk.dir=${ANDROID_HOME}" >> aps/flutter/app/android/local.properties
+          echo "sdk.dir=${ANDROID_HOME}" >> apps/flutter/app/android/local.properties
+          echo "RELEASE_STORE_FILE=debug-release.jks" >> apps/flutter/app/android/local.properties
+          echo "RELEASE_STORE_PASSWORD=android" >> apps/flutter/app/android/local.properties
+          echo "RELEASE_KEY_ALIAS=androiddebugkey" >> apps/flutter/app/android/local.properties
+          echo "RELEASE_KEY_PASSWORD=android" >> apps/flutter/app/android/local.properties
 
       - name: Flutter pub get
         working-directory: apps/flutter/app
@@ -112,7 +123,7 @@ jobs:
         working-directory: apps/flutter/app
         run: |
           mkdir -p build/web
-          echo '<!DOCTYPE html><html><body></html>' > build/web/index.html
+          echo '<!DOCTYPE html><html><body></body></html>' > build/web/index.html
           mkdir -p assets/web_access
 
       - name: Build debug APK
@@ -123,5 +134,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: operit2-debug
-          path: apps/flutter/app/build/app/outputs/flutter-apk/appdebug.apk
+          path: apps/flutter/app/build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 7
