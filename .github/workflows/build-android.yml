@@ -123,28 +123,50 @@ jobs:
         run: |
           python3 - <<'PY'
           import json
+          import re
           from pathlib import Path
 
           count = 0
+
           for p in Path("plugins").rglob("tsconfig.json"):
+              raw = p.read_text(encoding="utf-8-sig")
+
               try:
-                  data = json.loads(p.read_text(encoding="utf-8"))
+                  data = json.loads(raw)
+                  data.setdefault("compilerOptions", {})
+                  data["compilerOptions"]["ignoreDeprecations"] = "6.0"
+
+                  p.write_text(
+                      json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+                      encoding="utf-8"
+                  )
               except Exception as e:
-                  print("skip", p, e)
-                  continue
+                  print("json patch failed, fallback text patch:", p, e)
 
-              data.setdefault("compilerOptions", {})
-              data["compilerOptions"]["ignoreDeprecations"] = "6.0"
+                  text = raw
+                  if '"ignoreDeprecations"' not in text:
+                      text = re.sub(
+                          r'("compilerOptions"\s*:\s*\{)',
+                          r'\1\n    "ignoreDeprecations": "6.0",',
+                          text,
+                          count=1
+                      )
+                  p.write_text(text, encoding="utf-8")
 
-              p.write_text(
-                  json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-                  encoding="utf-8"
-              )
               count += 1
               print("patched", p)
 
           print("patched tsconfig count:", count)
           PY
+
+      - name: Verify TypeScript config patch
+        run: |
+          echo "All tsconfig files:"
+          find plugins -name tsconfig.json -print
+          echo "ignoreDeprecations check:"
+          grep -R "ignoreDeprecations" plugins --include="tsconfig.json" || true
+          echo "thinking_guidance tsconfig:"
+          cat plugins/packages/buildin/thinking_guidance/tsconfig.json
 
       - name: Create stub web build directory
         working-directory: apps/flutter/app
