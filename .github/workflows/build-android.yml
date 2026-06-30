@@ -1,8 +1,6 @@
 name: Build Android APK
-
 on:
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -60,6 +58,42 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> $GITHUB_ENV
           echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> $GITHUB_ENV
           echo "$ANDROID_HOME/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+
+      - name: Patch build.gradle.kts for Linux
+        working-directory: apps/flutter/app/android/app
+        run: |
+          python3 - <<'PY'
+          import re
+          p = "build.gradle.kts"
+          s = open(p, encoding="utf-8").read()
+
+          # 1) 让 release 签名属性变成可选，缺失时回退到 debug 签名，避免配置阶段报错
+          s = s.replace(
+              'localProperties.getProperty(name)\n        ?: throw GradleException("Missing Android release signing property: $name")',
+              'localProperties.getProperty(name) ?: ""'
+          )
+
+          # 2) Windows NDK 工具链路径 -> Linux
+          s = s.replace('.resolve("windows-x86_64")', '.resolve("linux-x86_64")')
+
+          # 3) 链接器 .cmd 后缀 -> 无后缀
+          s = s.replace('${linkerPrefix}${apiLevel}-clang.cmd', '${linkerPrefix}${apiLevel}-clang')
+
+          # 4) llvm-ar.exe -> llvm-ar
+          s = s.replace('resolve("llvm-ar.exe")', 'resolve("llvm-ar")')
+
+          # 5) Windows libclang 路径 -> 用系统 libclang（apt 安装）
+          s = s.replace(
+              'environment("LIBCLANG_PATH", operitLibclangDir.absolutePath)',
+              'environment("LIBCLANG_PATH", "/usr/lib/llvm-14/lib")'
+          )
+
+          open(p, "w", encoding="utf-8").write(s)
+          print("patched build.gradle.kts")
+          PY
+
+      - name: Install libclang
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev clang
 
       - name: Create local.properties
         run: |
