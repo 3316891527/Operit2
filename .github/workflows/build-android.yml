@@ -84,19 +84,3 @@ jobs:
           name: operit2-debug
           path: apps/flutter/app/build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 7
-      - name: Build Web first (generates wasm + web assets for APK bundling)
-        working-directory: apps/flutter/app
-        run: flutter build web --release
-
-      - name: Build debug APK
-        working-directory: apps/flutter/app
-        run: flutter build apk --debug
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: operit2-debug
-          path: apps/flutter/app/build/app/outputs/flutter-apk/app-debug.apk
-          retention-days: 7          name: operit2-debug
-          path: apps/flutter/app/build/app/outputs/flutter-apk/app-debug.apk
-          retention-days: 7
